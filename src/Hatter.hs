@@ -1,4 +1,4 @@
-module Hatter.Game where
+module Hatter where
 
 import Control.Wire
 import Prelude hiding ((.), id, null, filter)
