@@ -18,7 +18,7 @@ data GameObject = GameObject{id:: String
                              -- ^ An id to uniquely identify the object
                             ,position :: V2 Int
                              -- ^ Position where this game object is rendered
-                            ,boundingbox :: BoundingBox
+                            ,boundingBox :: BoundingBox
                              -- ^ Bounding Box for detecting collisions to this object
                             ,gameGraphic :: GameGraphic
                              -- ^ A graphic associated to this object. This grapahic will be renderd at the position of this object.
@@ -85,6 +85,11 @@ initialState definition = GameState {keyEvents=Set.empty
                                     ,gameObjects=[]
                                     ,extraState=externalState definition
                                     }
+
+--
+intersecting :: GameObject -> GameObject -> Bool
+intersecting o1 o2 = Hatter.BoundingBox.intersecting (Hatter.BoundingBox.translate (boundingBox o1) (position o1)) (translate (boundingBox o2) (position o2))
+
 
 -- Used for getting the events from SDL after each frame.
 -- Separates all the events into Keypress, MousEvent and other SDL events
