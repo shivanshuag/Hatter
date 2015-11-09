@@ -43,9 +43,16 @@ type KeyPress = SDL.Keycode
 -- render function should render a GameObject on the screen
 render :: [GameObject] -> SDL.Renderer -> AssetStore -> IO ()
 render (object:others) renderer assetStore = case gameGraphic object of
-    Image sprite -> ()
-    Geometry geom -> ()
+    Image sprite -> do
+        let maybeTexture = lookup (file sprite) $ images assetStore 
+        case maybeTexture of
+            Just texture ->
+                renderSprite renderer sprite (position object) texture
+        return $ render others renderer assetStore
 
+    --Geometry geom -> ()
+
+render [] _ _ = return ()
 
 -- Game Computation is the information calculated from the last frame of the game
 -- Library can modify only the extraState part of this type.
@@ -74,6 +81,7 @@ data GameDefinition s e b = GameDefinition {gameWire :: Wire s e IO (GameState b
                                              -- ^ frame-rate of the game
                                              ,externalState :: b
                                              -- ^ State if the game which is supplied by and can be modified by the user
+                                             ,assetDir :: FilePath
                                              }
 
 initialState ::  GameDefinition s e b-> GameState b
@@ -132,13 +140,14 @@ run definition (Canvas width height title) = do
     let winConfig = SDL.defaultWindow { SDL.windowInitialSize = V2 (fromIntegral width) (fromIntegral height) }
     window <- SDL.createWindow (pack title) winConfig
     renderer <- SDL.createRenderer window (-1) SDL.defaultRenderer
-    let assetStore = AssetStore $ Map.fromList []
+
+    let assetStore = buildAssetStore renderer $ assetDir definition
     let state = initialState definition
     gameLoop renderer definition state (countSession_ $ 1 / frameRate definition ) assetStore
 
 
 -- The Game Loop. Will run each of the wire, extract new list of game object, calculate new state and rerun the state
-gameLoop :: SDL.Renderer -> GameDefinition s e a -> GameState a -> Session IO s -> AssetStore -> IO ()
+gameLoop :: SDL.Renderer -> GameDefinition s e a -> GameState a -> Session IO s -> IO AssetStore -> IO ()
 gameLoop renderer definition state session assetStore = do
   (keyPress, mouseEvents, otherEvents) <- getEvents $ keyEvents state
   (ds, newSession) <- liftIO $ Wire.stepSession session
@@ -147,6 +156,7 @@ gameLoop renderer definition state session assetStore = do
   -- Provide a way for the user to modify extraState
   -- constructNewState :: GameState -> GameState
   -- render the objects here
+  store <- assetStore 
   case objects of
-    Right list -> render list renderer assetStore
-  gameLoop renderer definition state newSession assetStore
+    Right list -> render list renderer store
+  gameLoop renderer definition state newSession assetStore 
