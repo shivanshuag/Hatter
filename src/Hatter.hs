@@ -6,13 +6,14 @@ import Data.Map as Map
 import Data.Set as Set
 import Linear.V2
 import Data.Text
+import Hatter.Types
 import Hatter.Sprite
 import Hatter.Draw
 import Hatter.BoundingBox
-import Hatter.AssetStore
 import Control.Monad.IO.Class (liftIO)
-import qualified SDL
-
+import Graphics.UI.SDL as SDL
+import Graphics.UI.SDL.Event as Events
+import Graphics.UI.SDL.Types as Types
 -- | Game Object is the smallest renderable entity of the game.
 data GameObject = GameObject{id:: String
                              -- ^ An id to uniquely identify the object
@@ -31,7 +32,7 @@ data Canvas = Canvas Int Int String
 data GameGraphic =  Image Sprite | Geometry Draw
 
 -- | Data type for mouse events. Look at https://hackage.haskell.org/package/sdl2-2.1.0/docs/SDL-Event.html#t:Event for more details
-data MouseEvent = MouseMotionEvent SDL.MouseMotionEventData | MouseButtonEvent SDL.MouseButtonEventData | MouseWheelEvent SDL.MouseWheelEventData
+data MouseEvent = MouseMotionEvent Types.MouseMotionEventData | MouseButtonEvent Types.MouseButtonEventData | MouseWheelEvent Types.MouseWheelEventData
 
 -- | type alias for keycodes given by SDL in keyboardevent.
 -- Look at https://hackage.haskell.org/package/sdl2-2.1.0/docs/SDL-Input-Keyboard-Codes.html#v:Keycode for details on how to pattern match them
@@ -43,12 +44,16 @@ type KeyPress = SDL.Keycode
 -- render function should render a GameObject on the screen
 render :: [GameObject] -> SDL.Renderer -> AssetStore -> IO ()
 render (object:others) renderer assetStore = case gameGraphic object of
-    Image sprite -> do
-        let maybeTexture = lookup (file sprite) $ images assetStore 
-        case maybeTexture of
-            Just texture ->
+    Image sprite -> 
+        let maybeTexture = Map.lookup (file sprite) assetStore
+            in 
+            case maybeTexture of
+            Just iotexture -> do
+                texture <- iotexture
                 renderSprite renderer sprite (position object) texture
-        return $ render others renderer assetStore
+                render others renderer assetStore
+            Nothing -> render others renderer assetStore
+ 
 
     --Geometry geom -> ()
 
@@ -103,35 +108,35 @@ intersecting o1 o2 = Hatter.BoundingBox.intersecting (Hatter.BoundingBox.transla
 -- Separates all the events into Keypress, MousEvent and other SDL events
 getEvents :: Set KeyPress -> IO (Set KeyPress, [MouseEvent], [SDL.Event])
 getEvents keyPress = do
-  events <- SDL.pollEvents
+  events <- Events.pollEvents
   return $ parseEvents (keyPress, [], []) events
 
 -- helper function used by getEvents to separate events
 parseEvents :: (Set KeyPress, [MouseEvent], [SDL.Event]) -> [SDL.Event] -> (Set KeyPress, [MouseEvent], [SDL.Event])
 parseEvents e [] = e
-parseEvents ((keyPress, mouseEvents, otherEvents)) (event:others) = case SDL.eventPayload event of
-  SDL.KeyboardEvent eventData ->
+parseEvents ((keyPress, mouseEvents, otherEvents)) (event:others) = case Types.eventPayload event of
+  Types.KeyboardEvent eventData ->
     parseEvents
       (processKeyEvent keyPress eventData, mouseEvents, otherEvents) others
-  SDL.MouseButtonEvent eventData ->
+  Types.MouseButtonEvent eventData ->
     parseEvents
       (keyPress, MouseButtonEvent eventData:mouseEvents, otherEvents) others
-  SDL.MouseMotionEvent eventData ->
+  Types.MouseMotionEvent eventData ->
     parseEvents
       (keyPress, MouseMotionEvent eventData:mouseEvents, otherEvents) others
-  SDL.MouseWheelEvent eventData ->
+  Types.MouseWheelEvent eventData ->
     parseEvents
       (keyPress, MouseWheelEvent eventData:mouseEvents, otherEvents) others
   _ ->
     parseEvents (keyPress, mouseEvents, event:otherEvents) others
 
-processKeyEvent :: Set KeyPress -> SDL.KeyboardEventData -> Set KeyPress
-processKeyEvent keyPress eventData = case SDL.keyboardEventKeyMotion eventData of
-  SDL.Released -> Set.delete (getKeyPressfromEvent eventData) keyPress
-  SDL.Pressed -> Set.insert (getKeyPressfromEvent eventData) keyPress
+processKeyEvent :: Set KeyPress -> Types.KeyboardEventData -> Set KeyPress
+processKeyEvent keyPress eventData = case Events.keyboardEventKeyMotion eventData of
+  Types.Released -> Set.delete (getKeyPressfromEvent eventData) keyPress
+  Types.Pressed -> Set.insert (getKeyPressfromEvent eventData) keyPress
 
-getKeyPressfromEvent :: SDL.KeyboardEventData -> KeyPress
-getKeyPressfromEvent eventData = SDL.keysymKeycode $ SDL.keyboardEventKeysym eventData
+getKeyPressfromEvent :: Types.KeyboardEventData -> KeyPress
+getKeyPressfromEvent eventData = Events.keysymKeycode $ Events.keyboardEventKeysym eventData
 
 -- Called by the user with the game definition and the canvas to run the game
 run:: GameDefinition (Timed NominalDiffTime()) e b -> Canvas -> IO ()
@@ -141,7 +146,7 @@ run definition (Canvas width height title) = do
     window <- SDL.createWindow (pack title) winConfig
     renderer <- SDL.createRenderer window (-1) SDL.defaultRenderer
 
-    let assetStore = buildAssetStore renderer $ assetDir definition
+    assetStore <- buildAssetStore renderer $ assetDir definition
     let state = initialState definition
     gameLoop renderer definition state (countSession_ $ 1 / frameRate definition ) assetStore
 
