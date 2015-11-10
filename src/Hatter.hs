@@ -2,18 +2,24 @@ module Hatter where
 
 import Control.Wire as Wire
 import Prelude hiding ((.), id, null, filter)
-import Data.Map as Map
-import Data.Set as Set
+import Data.Map as Map hiding (foldl)
+import Data.Set as Set hiding (foldl)
 import Linear.V2
-import Data.Text
+import Data.Text hiding (foldl)
 import Hatter.Types
 import Hatter.Sprite
 import Hatter.Draw
 import Hatter.BoundingBox
 import Control.Monad.IO.Class (liftIO)
 import Graphics.UI.SDL as SDL
-import Graphics.UI.SDL.Event as Events
-import Graphics.UI.SDL.Types as Types
+import Graphics.UI.SDL.Event
+import Graphics.UI.SDL.Types
+import Data.Bits
+import Foreign.Storable
+import Foreign.Marshal.Alloc
+import Foreign.Marshal.Utils
+import Foreign.C.String
+import Foreign.C.Types
 -- | Game Object is the smallest renderable entity of the game.
 data GameObject = GameObject{id:: String
                              -- ^ An id to uniquely identify the object
@@ -30,9 +36,6 @@ data Canvas = Canvas Int Int String
 
 -- | A graphic can either be a sprite or a geometry. Graphic has an associated render function.
 data GameGraphic =  Image Sprite | Geometry Draw
-
--- | Data type for mouse events. Look at https://hackage.haskell.org/package/sdl2-2.1.0/docs/SDL-Event.html#t:Event for more details
-data MouseEvent = MouseMotionEvent Types.MouseMotionEventData | MouseButtonEvent Types.MouseButtonEventData | MouseWheelEvent Types.MouseWheelEventData
 
 -- | type alias for keycodes given by SDL in keyboardevent.
 -- Look at https://hackage.haskell.org/package/sdl2-2.1.0/docs/SDL-Input-Keyboard-Codes.html#v:Keycode for details on how to pattern match them
@@ -104,51 +107,62 @@ intersecting :: GameObject -> GameObject -> Bool
 intersecting o1 o2 = Hatter.BoundingBox.intersecting (Hatter.BoundingBox.translate (boundingBox o1) (position o1)) (translate (boundingBox o2) (position o2))
 
 
+pollEvents :: IO (Maybe SDL.Event)
+pollEvents = alloca $ \pointer -> do
+    status <- pollEvent pointer
+    if status==1 then maybePeek peek pointer else return Nothing
+
+getEventsHelper :: IO [SDL.Event]
+getEventsHelper = do 
+	maybeevent <- pollEvents
+	case maybeevent of
+		Nothing -> return []
+		Just event -> do 
+			events <- getEventsHelper
+			return $ event:events
+
 -- Used for getting the events from SDL after each frame.
 -- Separates all the events into Keypress, MousEvent and other SDL events
 getEvents :: Set KeyPress -> IO (Set KeyPress, [MouseEvent], [SDL.Event])
 getEvents keyPress = do
-  events <- Events.pollEvents
+  events <- getEventsHelper 
   return $ parseEvents (keyPress, [], []) events
 
 -- helper function used by getEvents to separate events
 parseEvents :: (Set KeyPress, [MouseEvent], [SDL.Event]) -> [SDL.Event] -> (Set KeyPress, [MouseEvent], [SDL.Event])
 parseEvents e [] = e
-parseEvents ((keyPress, mouseEvents, otherEvents)) (event:others) = case Types.eventPayload event of
-  Types.KeyboardEvent eventData ->
+parseEvents ((keyPress, mouseEvents, otherEvents)) (event:others) = case event of
+  KeyboardEvent{}->
     parseEvents
-      (processKeyEvent keyPress eventData, mouseEvents, otherEvents) others
-  Types.MouseButtonEvent eventData ->
+      (processKeyEvent keyPress event, mouseEvents, otherEvents) others
+  SDL.MouseButtonEvent{} ->
     parseEvents
-      (keyPress, MouseButtonEvent eventData:mouseEvents, otherEvents) others
-  Types.MouseMotionEvent eventData ->
+      (keyPress, event:mouseEvents, otherEvents) others
+  SDL.MouseMotionEvent{} ->
     parseEvents
-      (keyPress, MouseMotionEvent eventData:mouseEvents, otherEvents) others
-  Types.MouseWheelEvent eventData ->
+      (keyPress, event:mouseEvents, otherEvents) others
+  SDL.MouseWheelEvent{} ->
     parseEvents
-      (keyPress, MouseWheelEvent eventData:mouseEvents, otherEvents) others
+      (keyPress, event:mouseEvents, otherEvents) others
   _ ->
     parseEvents (keyPress, mouseEvents, event:otherEvents) others
 
-processKeyEvent :: Set KeyPress -> Types.KeyboardEventData -> Set KeyPress
-processKeyEvent keyPress eventData = case Events.keyboardEventKeyMotion eventData of
-  Types.Released -> Set.delete (getKeyPressfromEvent eventData) keyPress
-  Types.Pressed -> Set.insert (getKeyPressfromEvent eventData) keyPress
-
-getKeyPressfromEvent :: Types.KeyboardEventData -> KeyPress
-getKeyPressfromEvent eventData = Events.keysymKeycode $ Events.keyboardEventKeysym eventData
+processKeyEvent :: Set KeyPress -> SDL.Event -> Set KeyPress
+processKeyEvent keyPress (SDL.KeyboardEvent eventType _ _ _ _ (Keysym _ keycode _)) |
+	eventType == SDL.SDL_KEYUP = Set.delete keycode keyPress
+	| eventType == SDL.SDL_KEYDOWN = Set.insert keycode keyPress
+	| otherwise = keyPress
 
 -- Called by the user with the game definition and the canvas to run the game
 run:: GameDefinition (Timed NominalDiffTime()) e b -> Canvas -> IO ()
 run definition (Canvas width height title) = do
-    SDL.initialize [SDL.InitEverything]
-    let winConfig = SDL.defaultWindow { SDL.windowInitialSize = V2 (fromIntegral width) (fromIntegral height) }
-    window <- SDL.createWindow (pack title) winConfig
-    renderer <- SDL.createRenderer window (-1) SDL.defaultRenderer
+    ctitle <- newCString title 
+    SDL.init $ foldl (.|.) 0 [SDL.SDL_INIT_VIDEO]
+    window <- SDL.createWindow ctitle SDL.SDL_WINDOWPOS_UNDEFINED SDL.SDL_WINDOWPOS_UNDEFINED (fromIntegral width) (fromIntegral height) SDL.SDL_WINDOW_SHOWN 
+    renderer <- SDL.createRenderer window (-1) $ foldl (.|.) 0 [SDL.SDL_RENDERER_ACCELERATED]
 
-    assetStore <- buildAssetStore renderer $ assetDir definition
     let state = initialState definition
-    gameLoop renderer definition state (countSession_ $ 1 / frameRate definition ) assetStore
+    gameLoop renderer definition state (countSession_ $ 1 / frameRate definition ) $ buildAssetStore renderer $ assetDir definition
 
 
 -- The Game Loop. Will run each of the wire, extract new list of game object, calculate new state and rerun the state
