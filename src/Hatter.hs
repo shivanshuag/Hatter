@@ -2,17 +2,24 @@ module Hatter where
 
 import Control.Wire as Wire
 import Prelude hiding ((.), id, null, filter)
-import Data.Map as Map
-import Data.Set as Set
+import Data.Map as Map hiding (foldl)
+import Data.Set as Set hiding (foldl)
 import Linear.V2
-import Data.Text
+import Data.Text hiding (foldl)
+import Hatter.Types
 import Hatter.Sprite
 import Hatter.Draw
 import Hatter.BoundingBox
-import Hatter.AssetStore
 import Control.Monad.IO.Class (liftIO)
-import qualified SDL
-
+import Graphics.UI.SDL as SDL
+import Graphics.UI.SDL.Event
+import Graphics.UI.SDL.Types
+import Data.Bits
+import Foreign.Storable
+import Foreign.Marshal.Alloc
+import Foreign.Marshal.Utils
+import Foreign.C.String
+import Foreign.C.Types
 -- | Game Object is the smallest renderable entity of the game.
 data GameObject = GameObject{id:: String
                              -- ^ An id to uniquely identify the object
@@ -30,9 +37,6 @@ data Canvas = Canvas Int Int String
 -- | A graphic can either be a sprite or a geometry. Graphic has an associated render function.
 data GameGraphic =  Image Sprite | Geometry Draw
 
--- | Data type for mouse events. Look at https://hackage.haskell.org/package/sdl2-2.1.0/docs/SDL-Event.html#t:Event for more details
-data MouseEvent = MouseMotionEvent SDL.MouseMotionEventData | MouseButtonEvent SDL.MouseButtonEventData | MouseWheelEvent SDL.MouseWheelEventData
-
 -- | type alias for keycodes given by SDL in keyboardevent.
 -- Look at https://hackage.haskell.org/package/sdl2-2.1.0/docs/SDL-Input-Keyboard-Codes.html#v:Keycode for details on how to pattern match them
 type KeyPress = SDL.Keycode
@@ -43,9 +47,20 @@ type KeyPress = SDL.Keycode
 -- render function should render a GameObject on the screen
 render :: [GameObject] -> SDL.Renderer -> AssetStore -> IO ()
 render (object:others) renderer assetStore = case gameGraphic object of
-    Image sprite -> ()
-    Geometry geom -> ()
+    Image sprite -> 
+        let maybeTexture = Map.lookup (file sprite) assetStore
+            in 
+            case maybeTexture of
+            Just iotexture -> do
+                texture <- iotexture
+                renderSprite renderer sprite (position object) texture
+                render others renderer assetStore
+            Nothing -> render others renderer assetStore
+ 
 
+    --Geometry geom -> ()
+
+render [] _ _ = return ()
 
 -- Game Computation is the information calculated from the last frame of the game
 -- Library can modify only the extraState part of this type.
@@ -74,6 +89,7 @@ data GameDefinition s e b = GameDefinition {gameWire :: Wire s e IO (GameState b
                                              -- ^ frame-rate of the game
                                              ,externalState :: b
                                              -- ^ State if the game which is supplied by and can be modified by the user
+                                             ,assetDir :: FilePath
                                              }
 
 initialState ::  GameDefinition s e b-> GameState b
@@ -91,54 +107,66 @@ intersecting :: GameObject -> GameObject -> Bool
 intersecting o1 o2 = Hatter.BoundingBox.intersecting (Hatter.BoundingBox.translate (boundingBox o1) (position o1)) (translate (boundingBox o2) (position o2))
 
 
+pollEvents :: IO (Maybe SDL.Event)
+pollEvents = alloca $ \pointer -> do
+    status <- pollEvent pointer
+    if status==1 then maybePeek peek pointer else return Nothing
+
+getEventsHelper :: IO [SDL.Event]
+getEventsHelper = do 
+	maybeevent <- pollEvents
+	case maybeevent of
+		Nothing -> return []
+		Just event -> do 
+			events <- getEventsHelper
+			return $ event:events
+
 -- Used for getting the events from SDL after each frame.
 -- Separates all the events into Keypress, MousEvent and other SDL events
 getEvents :: Set KeyPress -> IO (Set KeyPress, [MouseEvent], [SDL.Event])
 getEvents keyPress = do
-  events <- SDL.pollEvents
+  events <- getEventsHelper 
   return $ parseEvents (keyPress, [], []) events
 
 -- helper function used by getEvents to separate events
 parseEvents :: (Set KeyPress, [MouseEvent], [SDL.Event]) -> [SDL.Event] -> (Set KeyPress, [MouseEvent], [SDL.Event])
 parseEvents e [] = e
-parseEvents ((keyPress, mouseEvents, otherEvents)) (event:others) = case SDL.eventPayload event of
-  SDL.KeyboardEvent eventData ->
+parseEvents ((keyPress, mouseEvents, otherEvents)) (event:others) = case event of
+  KeyboardEvent{}->
     parseEvents
-      (processKeyEvent keyPress eventData, mouseEvents, otherEvents) others
-  SDL.MouseButtonEvent eventData ->
+      (processKeyEvent keyPress event, mouseEvents, otherEvents) others
+  SDL.MouseButtonEvent{} ->
     parseEvents
-      (keyPress, MouseButtonEvent eventData:mouseEvents, otherEvents) others
-  SDL.MouseMotionEvent eventData ->
+      (keyPress, event:mouseEvents, otherEvents) others
+  SDL.MouseMotionEvent{} ->
     parseEvents
-      (keyPress, MouseMotionEvent eventData:mouseEvents, otherEvents) others
-  SDL.MouseWheelEvent eventData ->
+      (keyPress, event:mouseEvents, otherEvents) others
+  SDL.MouseWheelEvent{} ->
     parseEvents
-      (keyPress, MouseWheelEvent eventData:mouseEvents, otherEvents) others
+      (keyPress, event:mouseEvents, otherEvents) others
   _ ->
     parseEvents (keyPress, mouseEvents, event:otherEvents) others
 
-processKeyEvent :: Set KeyPress -> SDL.KeyboardEventData -> Set KeyPress
-processKeyEvent keyPress eventData = case SDL.keyboardEventKeyMotion eventData of
-  SDL.Released -> Set.delete (getKeyPressfromEvent eventData) keyPress
-  SDL.Pressed -> Set.insert (getKeyPressfromEvent eventData) keyPress
-
-getKeyPressfromEvent :: SDL.KeyboardEventData -> KeyPress
-getKeyPressfromEvent eventData = SDL.keysymKeycode $ SDL.keyboardEventKeysym eventData
+processKeyEvent :: Set KeyPress -> SDL.Event -> Set KeyPress
+processKeyEvent keyPress (SDL.KeyboardEvent eventType _ _ _ _ (Keysym _ keycode _)) |
+	eventType == SDL.SDL_KEYUP = Set.delete keycode keyPress
+	| eventType == SDL.SDL_KEYDOWN = Set.insert keycode keyPress
+	| otherwise = keyPress
 
 -- Called by the user with the game definition and the canvas to run the game
 run:: GameDefinition (Timed NominalDiffTime()) e b -> Canvas -> IO ()
 run definition (Canvas width height title) = do
-    SDL.initialize [SDL.InitEverything]
-    let winConfig = SDL.defaultWindow { SDL.windowInitialSize = V2 (fromIntegral width) (fromIntegral height) }
-    window <- SDL.createWindow (pack title) winConfig
-    renderer <- SDL.createRenderer window (-1) SDL.defaultRenderer
-    let assetStore = AssetStore $ Map.fromList []
+    ctitle <- newCString title 
+    SDL.init $ foldl (.|.) 0 [SDL.SDL_INIT_VIDEO]
+    window <- SDL.createWindow ctitle SDL.SDL_WINDOWPOS_UNDEFINED SDL.SDL_WINDOWPOS_UNDEFINED (fromIntegral width) (fromIntegral height) SDL.SDL_WINDOW_SHOWN 
+    renderer <- SDL.createRenderer window (-1) $ foldl (.|.) 0 [SDL.SDL_RENDERER_ACCELERATED]
+
     let state = initialState definition
-    gameLoop renderer definition state (countSession_ $ 1 / frameRate definition ) assetStore
+    gameLoop renderer definition state (countSession_ $ 1 / frameRate definition ) $ buildAssetStore renderer $ assetDir definition
 
 
 -- The Game Loop. Will run each of the wire, extract new list of game object, calculate new state and rerun the state
-gameLoop :: SDL.Renderer -> GameDefinition s e a -> GameState a -> Session IO s -> AssetStore -> IO ()
+gameLoop :: SDL.Renderer -> GameDefinition s e a -> GameState a -> Session IO s -> IO AssetStore -> IO ()
 gameLoop renderer definition state session assetStore = do
   (keyPress, mouseEvents, otherEvents) <- getEvents $ keyEvents state
   (ds, newSession) <- liftIO $ Wire.stepSession session
@@ -147,6 +175,7 @@ gameLoop renderer definition state session assetStore = do
   -- Provide a way for the user to modify extraState
   -- constructNewState :: GameState -> GameState
   -- render the objects here
+  store <- assetStore 
   case objects of
-    Right list -> render list renderer assetStore
-  gameLoop renderer definition state newSession assetStore
+    Right list -> render list renderer store
+  gameLoop renderer definition state newSession assetStore 

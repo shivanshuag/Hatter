@@ -1,5 +1,5 @@
 module Hatter.Sounds where
-  import Control.Monad
+{--  import Control.Monad
   import Control.Concurrent
   import qualified Graphics.UI.SDL.Mixer.General as SDL.Mixer
   import qualified Graphics.UI.SDL.Mixer.Channels as SDL.Mixer.Channels
@@ -76,4 +76,5 @@ module Hatter.Sounds where
             audioChannels = 2
             audioBuffers  = 4096
             anyChannel    = (-1)
+    --}
     --}
