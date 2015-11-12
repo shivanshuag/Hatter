@@ -10,7 +10,7 @@ import Data.Map as Map hiding (foldl)
 import Linear
 
 initialGameState :: GameState String
-initialGameState = createInitialState [squareObject] ""
+initialGameState = createInitialState (Map.fromList [(oid squareObject,squareObject)]) ""
 
 objectName :: String
 objectName = assetDirPath ++ "square.png"
@@ -19,17 +19,17 @@ squareObject :: GameObject
 squareObject = GameObject "square1" (V2 2 2) Hatter.Types.None (Image $ Hatter.Types.Sprite objectName 100 100)
 
 
-myGameWire :: (Real t, HasTime t s) => Wire s e IO (GameState String) [GameObject]
+myGameWire :: (Real t, HasTime t s) => Wire s e IO (GameState String) (Map String GameObject)
 myGameWire =  proc state -> do
-    let object = head $ gameObjects state
+    let object = head $ Map.elems $ gameObjects state
     let newposition = position object + V2 (10.0 * dt state) 0
-      
-    --newpositionx <- pos -< 2.1 
-    --newpositiony <- pos -< 2.1 
+
+    --newpositionx <- pos -< 2.1
+    --newpositiony <- pos -< 2.1
     --let newposition = V2 newpositionx newpositiony + position object
-    let newobject = GameObject {id=id object, position=newposition, boundingBox=boundingBox object, gameGraphic=gameGraphic object}
-    returnA -< [newobject]
-    
+    let newobject = GameObject {oid=oid object, position=newposition, boundingBox=boundingBox object, gameGraphic=gameGraphic object}
+    returnA -< (Map.fromList [(oid newobject, newobject)])
+
     --TODO: Provide function to form new game object with updated position
 
 myEventCheckers :: Map String (GameState String -> ())

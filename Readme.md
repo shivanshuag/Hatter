@@ -5,5 +5,5 @@ Hatter is a game engine written in Haskell using Netwire and SDL
 Team Details -
 
 * Shivanshu Agrawal
-* Ayush Miittal
+* Ayush Mittal
 * Mohit Garg
