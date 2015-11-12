@@ -5,6 +5,7 @@ import Graphics.UI.SDL.Types
 import Data.Map as Map
 import Data.Set as Set
 import Linear
+import Control.Wire
 
 type AssetStore = Map String (IO SDL.Texture)
 
@@ -55,3 +56,15 @@ data GameState b = GameState {keyEvents :: Set KeyPress
                              -- ^ the externalState supplied by and modified by the user
                              ,dt :: Double
                              }
+
+-- Definition of the game.
+data GameDefinition s e b = GameDefinition {gameWire :: Wire s e IO (GameState b) (Map String GameObject)
+                                              -- ^ Wire has all the logic of the game. The wire takes a GameState and returns a List of GameObjects which are rendered
+                                             ,eventCheckers :: Map String (GameState b -> ())
+                                             -- ^ used for interaction between GameObjects. These are checked in each frame.
+                                             ,frameRate :: NominalDiffTime
+                                             -- ^ frame-rate of the game
+                                             ,externalState :: b
+                                             -- ^ State if the game which is supplied by and can be modified by the user
+                                             ,assetDir :: FilePath
+                                             }
