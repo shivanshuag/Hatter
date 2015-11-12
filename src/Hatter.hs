@@ -20,10 +20,11 @@ import Foreign.Marshal.Alloc
 import Foreign.Marshal.Utils
 import Foreign.C.String
 import Foreign.C.Types
+import Data.Time (NominalDiffTime)
 -- | Game Object is the smallest renderable entity of the game.
 data GameObject = GameObject{id:: String
                              -- ^ An id to uniquely identify the object
-                            ,position :: V2 Int
+                            ,position :: V2 Double
                              -- ^ Position where this game object is rendered
                             ,boundingBox :: BoundingBox
                              -- ^ Bounding Box for detecting collisions to this object
@@ -52,6 +53,7 @@ render (object:others) renderer assetStore = case gameGraphic object of
             in 
             case maybeTexture of
             Just iotexture -> do
+                print $ position object
                 texture <- iotexture
                 renderSprite renderer sprite (position object) texture
                 render others renderer assetStore
@@ -78,6 +80,7 @@ data GameState b = GameState {keyEvents :: Set KeyPress
                              -- ^ gameobjects obtained by running the wire in the previous frame. These are rendered on the screen
                              ,extraState :: b
                              -- ^ the externalState supplied by and modified by the user
+                             ,dt :: Double
                              }
 
 -- Definition of the game.
@@ -92,16 +95,17 @@ data GameDefinition s e b = GameDefinition {gameWire :: Wire s e IO (GameState b
                                              ,assetDir :: FilePath
                                              }
 
-initialState ::  GameDefinition s e b-> GameState b
-initialState definition = GameState {keyEvents=Set.empty
+createInitialState ::  [GameObject]-> b -> GameState b
+createInitialState  objects externalstate= GameState {keyEvents=Set.empty
                                     ,mouseEvents=[]
                                     ,sdlEvents=[]
                                     ,collisions=Map.fromList []
                                     ,events=Map.fromList []
-                                    ,gameObjects=[]
-                                    ,extraState=externalState definition
+                                    ,gameObjects=objects
+                                    ,extraState=externalstate
+                                    ,dt=0
                                     }
-
+--}
 --
 intersecting :: GameObject -> GameObject -> Bool
 intersecting o1 o2 = Hatter.BoundingBox.intersecting (Hatter.BoundingBox.translate (boundingBox o1) (position o1)) (translate (boundingBox o2) (position o2))
@@ -153,21 +157,41 @@ processKeyEvent keyPress (SDL.KeyboardEvent eventType _ _ _ _ (Keysym _ keycode 
 	| eventType == SDL.SDL_KEYDOWN = Set.insert keycode keyPress
 	| otherwise = keyPress
 
+updateState :: GameState b -> [GameObject] -> Double -> IO (GameState b)
+updateState oldstate newObjects newdt= do
+        (keys, mouse, other) <- getEvents $ keyEvents oldstate
+        --TODO: check for  collisionEvents 
+        --TODO: check for user event checkers
+        let newstate = GameState {keyEvents=keys
+                             ,mouseEvents=mouse
+                             ,sdlEvents=other
+                             ,collisions=collisions oldstate
+                             ,events=events oldstate
+                             ,gameObjects=newObjects
+                             ,extraState=extraState oldstate
+                             ,dt=newdt
+                             }
+        return newstate
+
+
+
+--TODO: Remove external state from game definition and write logic to
+--handle external state.
 -- Called by the user with the game definition and the canvas to run the game
-run:: GameDefinition (Timed NominalDiffTime()) e b -> Canvas -> IO ()
-run definition (Canvas width height title) = do
+run:: GameDefinition (Timed NominalDiffTime()) e b -> Canvas -> GameState b -> IO ()
+run definition (Canvas width height title) initialState = do
     ctitle <- newCString title 
     SDL.init $ foldl (.|.) 0 [SDL.SDL_INIT_VIDEO]
     window <- SDL.createWindow ctitle SDL.SDL_WINDOWPOS_UNDEFINED SDL.SDL_WINDOWPOS_UNDEFINED (fromIntegral width) (fromIntegral height) SDL.SDL_WINDOW_SHOWN 
     renderer <- SDL.createRenderer window (-1) $ foldl (.|.) 0 [SDL.SDL_RENDERER_ACCELERATED]
 
-    let state = initialState definition
-    gameLoop renderer definition state (countSession_ $ 1 / frameRate definition ) $ buildAssetStore renderer $ assetDir definition
+    gameLoop renderer definition initialState (countSession_ $ 1 / frameRate definition ) $ buildAssetStore renderer $ assetDir definition
 
 
 -- The Game Loop. Will run each of the wire, extract new list of game object, calculate new state and rerun the state
-gameLoop :: SDL.Renderer -> GameDefinition s e a -> GameState a -> Session IO s -> IO AssetStore -> IO ()
+gameLoop :: (Real t, HasTime t s) => SDL.Renderer -> GameDefinition s e a -> GameState a -> Session IO s -> IO AssetStore -> IO ()
 gameLoop renderer definition state session assetStore = do
+  SDL.renderClear renderer
   (keyPress, mouseEvents, otherEvents) <- getEvents $ keyEvents state
   (ds, newSession) <- liftIO $ Wire.stepSession session
   (objects, newWire) <- Wire.stepWire (gameWire definition) ds (Right state)
@@ -176,6 +200,10 @@ gameLoop renderer definition state session assetStore = do
   -- constructNewState :: GameState -> GameState
   -- render the objects here
   store <- assetStore 
-  case objects of
-    Right list -> render list renderer store
-  gameLoop renderer definition state newSession assetStore 
+  newstate <- case objects of
+                  Right list -> do
+                      render list renderer store
+                      updateState state list $ realToFrac $ dtime ds
+                  Left error -> updateState state [] $ realToFrac $ dtime ds
+  SDL.renderPresent renderer
+  gameLoop renderer definition newstate newSession assetStore 

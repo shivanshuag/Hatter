@@ -25,10 +25,10 @@ throwSDLError message = do
         errorString <- SDL.getError >>= peekCString
         fail (message ++ "SDL_Error:" ++ errorString)
 
-renderSprite :: SDL.Renderer -> Sprite -> V2 Int -> SDL.Texture -> IO ()
+renderSprite :: SDL.Renderer -> Sprite -> V2 Double -> SDL.Texture -> IO ()
 renderSprite renderer sprite (V2 x y) texture = do
         let rect =
-                SDL.Rect { rectX = fromIntegral x, rectY = fromIntegral y, rectW = fromIntegral $ width sprite, rectH = fromIntegral $ height sprite}
+                SDL.Rect { rectX = fromIntegral (round x), rectY = fromIntegral (round y), rectW = fromIntegral $ width sprite, rectH = fromIntegral $ height sprite}
         with rect $ SDL.renderCopy renderer texture nullPtr
         return () 
 
