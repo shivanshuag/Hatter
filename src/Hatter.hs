@@ -45,19 +45,6 @@ render (object:others) renderer assetStore = case gameGraphic object of
 
 render [] _ _ = return ()
 
-
--- Definition of the game.
-data GameDefinition s e b = GameDefinition {gameWire :: Wire s e IO (GameState b) (Map String GameObject)
-                                              -- ^ Wire has all the logic of the game. The wire takes a GameState and returns a List of GameObjects which are rendered
-                                             ,eventCheckers :: Map String (GameState b -> ())
-                                             -- ^ used for interaction between GameObjects. These are checked in each frame.
-                                             ,frameRate :: NominalDiffTime
-                                             -- ^ frame-rate of the game
-                                             ,externalState :: b
-                                             -- ^ State if the game which is supplied by and can be modified by the user
-                                             ,assetDir :: FilePath
-                                             }
-
 createInitialState :: Map String GameObject -> b -> GameState b
 createInitialState  objects externalstate= GameState {keyEvents=Set.empty
                                     ,mouseEvents=[]
