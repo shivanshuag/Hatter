@@ -34,7 +34,6 @@ render (object:others) renderer assetStore = case gameGraphic object of
             in
             case maybeTexture of
             Just iotexture -> do
-                print $ position object
                 texture <- iotexture
                 renderSprite renderer sprite (position object) texture
                 render others renderer assetStore
@@ -145,7 +144,6 @@ gameLoop renderer definition state session assetStore = do
   (keyPress, mouseEvents, otherEvents) <- getEvents $ keyEvents state
   (ds, newSession) <- liftIO $ Wire.stepSession session
   (objects, newWire) <- Wire.stepWire (gameWire definition) ds (Right state)
-  -- create a new state here
   -- Provide a way for the user to modify extraState
   -- constructNewState :: GameState -> GameState
   -- render the objects here
@@ -156,4 +154,10 @@ gameLoop renderer definition state session assetStore = do
                       updateState state objects $ realToFrac $ dtime ds
                   Left error -> updateState state (Map.fromList []) $ realToFrac $ dtime ds
   SDL.renderPresent renderer
-  gameLoop renderer definition newstate newSession assetStore
+  let newdefinition = GameDefinition {gameWire=newWire
+                                     , eventCheckers=eventCheckers definition 
+                                     , frameRate=frameRate definition
+                                     , externalState=externalState definition
+                                     , assetDir=assetDir definition
+                                     }
+  gameLoop renderer newdefinition newstate newSession assetStore

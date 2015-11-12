@@ -70,3 +70,10 @@ Executable square
  hs-source-dirs:    examples
  default-language:  Haskell2010
  ghc-options:   -Wall
+
+Executable square_using_wires
+ main-is:   square_using_wires.hs
+ build-depends: base,sdl2,netwire,linear,hatter,containers
+ hs-source-dirs:    examples
+ default-language:  Haskell2010
+ ghc-options:   -Wall
