@@ -22,6 +22,8 @@ data Canvas = Canvas Int Int String
 -- Look at https://hackage.haskell.org/package/sdl2-2.1.0/docs/SDL-Input-Keyboard-Codes.html#v:Keycode for details on how to pattern match them
 type KeyPress = SDL.Keycode
 
+data Colour = White | Red | Blue | Green | Yellow
+
 data Draw = Draw{line :: V2 Int, point :: V2 Int}
 
 -- | A graphic can either be a sprite or a geometry. Graphic has an associated render function.
