@@ -13,6 +13,8 @@ data Sprite = Sprite{file :: String, width :: Int, height :: Int}
 
 type MouseEvent = SDL.Event
 
+-- | Bounding box for game objects for detecting collisions
+-- | The coordinates of the bounding box are given relative to the gameObject i.e. by taking the position of the gameObject as (0,0)
 data BoundingBox = Circle (V2 Double) Double | Rectangle (V2 Double) (V2 Double) | None
 
 -- | The entire window where the game happens. Take widht, height and the name of the window.
@@ -48,16 +50,18 @@ data GameState b = GameState {keyEvents :: Set KeyPress
                              ,sdlEvents :: [SDL.Event]
                               -- ^ List of SDL events other than mouse and keyboard event that occured after the previous frame
                               -- ^ Lookup https://hackage.haskell.org/package/sdl2-2.1.0/docs/SDL-Event.html#t:Event for the list of all events
-                             ,collisions :: Map String GameObject
+                             ,collisions :: Map String [GameObject]
+                             -- ^ Map of GameObject to List of GameObjects it collided with in the previous frame
                              ,events :: Map String ()
                              ,gameObjects :: Map String GameObject
                              -- ^ gameobjects obtained by running the wire in the previous frame. These are rendered on the screen
                              ,extraState :: b
                              -- ^ the externalState supplied by and modified by the user
                              ,dt :: Double
+                             -- ^ Time passed between the last and the last to last frame
                              }
 
--- Definition of the game.
+-- | Definition of the game.
 data GameDefinition s e b = GameDefinition {gameWire :: Wire s e IO (GameState b) (Map String GameObject)
                                               -- ^ Wire has all the logic of the game. The wire takes a GameState and returns a List of GameObjects which are rendered
                                              ,eventCheckers :: Map String (GameState b -> ())
@@ -67,4 +71,5 @@ data GameDefinition s e b = GameDefinition {gameWire :: Wire s e IO (GameState b
                                              ,externalState :: b
                                              -- ^ State if the game which is supplied by and can be modified by the user
                                              ,assetDir :: FilePath
+                                             -- ^ Path to the directory from where the assets of the game will be loaded
                                              }

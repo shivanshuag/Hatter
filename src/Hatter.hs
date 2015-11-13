@@ -57,7 +57,7 @@ createInitialState  objects externalstate= GameState {keyEvents=Set.empty
 --}
 --
 intersecting :: GameObject -> GameObject -> Bool
-intersecting o1 o2 = Hatter.BoundingBox.intersecting (Hatter.BoundingBox.translate (boundingBox o1) (position o1)) (translate (boundingBox o2) (position o2))
+intersecting o1 o2 = intersects (Hatter.BoundingBox.translate (boundingBox o1) (position o1)) (translate (boundingBox o2) (position o2))
 
 
 pollEvents :: IO (Maybe SDL.Event)
@@ -106,15 +106,32 @@ processKeyEvent keyPress (SDL.KeyboardEvent eventType _ _ _ _ (Keysym _ keycode 
   | eventType == SDL.SDL_KEYDOWN = Set.insert keycode keyPress
   | otherwise = keyPress
 
+-- | Checks for collisions among all the gameobjects in the gamestate.
+checkCollisions :: GameState b -> Map String [GameObject]
+checkCollisions state =
+  let objects = Map.elems $ gameObjects state
+  in foldl (\accum object -> checkCollision_ object objects accum) (Map.fromList []) objects
+
+
+checkCollision_ :: GameObject -> [GameObject] -> Map String [GameObject]-> Map String [GameObject]
+checkCollision_ object (other:others) accum = if intersecting object other
+  then checkCollision_ object others $ updateMap (oid object) other accum
+  else checkCollision_ object others accum
+checkCollision_ _ [] accum = accum
+
+updateMap :: String -> GameObject -> Map String [GameObject] -> Map String [GameObject]
+updateMap identity object collisionMap = case Map.lookup identity collisionMap of
+  Just list -> Map.adjust (\x -> object:x) identity collisionMap
+  Nothing -> Map.insert identity [object] collisionMap
+
 updateState :: GameState b -> Map String GameObject -> Double -> IO (GameState b)
 updateState oldstate newObjects newdt= do
         (keys, mouse, other) <- getEvents $ keyEvents oldstate
-        --TODO: check for  collisionEvents
         --TODO: check for user event checkers
         let newstate = GameState {keyEvents=keys
                              ,mouseEvents=mouse
                              ,sdlEvents=other
-                             ,collisions=collisions oldstate
+                             ,collisions=checkCollisions oldstate
                              ,events=events oldstate
                              ,gameObjects=newObjects
                              ,extraState=extraState oldstate
@@ -155,7 +172,7 @@ gameLoop renderer definition state session assetStore = do
                   Left error -> updateState state (Map.fromList []) $ realToFrac $ dtime ds
   SDL.renderPresent renderer
   let newdefinition = GameDefinition {gameWire=newWire
-                                     , eventCheckers=eventCheckers definition 
+                                     , eventCheckers=eventCheckers definition
                                      , frameRate=frameRate definition
                                      , externalState=externalState definition
                                      , assetDir=assetDir definition
