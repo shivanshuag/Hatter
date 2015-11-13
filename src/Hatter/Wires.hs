@@ -11,7 +11,7 @@ import Data.Map as Map
 type Velocity = V2 Double
 type Acceleration = V2 Double
 type VelocityWire s e b = Wire s e IO (GameState b, Acceleration) (V2 Double)
-type AccelerationWire s e b= Wire s e IO (GameState b) (V2 Double) 
+type AccelerationWire s e b= Wire s e IO (GameState b) (V2 Double)
 type CorrectionFunction b = GameState b -> V2 Double -> V2 Double
 
 identityCorrectionFunction :: CorrectionFunction b
@@ -28,7 +28,7 @@ velocityWire correct = loop
   where
     loop v =
         mkPure $ \ds (state,accel) ->
-            let dt = realToFrac (dtime ds) 
+            let dt = realToFrac (dtime ds)
                 v'  = correct state (v + dt*accel)
             in v `seq` (Right v, loop v')
 
@@ -36,7 +36,7 @@ velocityWire correct = loop
 positionWire_ :: (Real t, HasTime t s) => CorrectionFunction b -> V2 Double -> Wire s e IO (GameState b, Velocity) (V2 Double)
 positionWire_ correct = loop
   where
-    loop pos= 
+    loop pos=
       mkPure $ \ds (state, vel) ->
         let dt = realToFrac (dtime ds)
             pos' = correct state (pos + vel*dt)
@@ -53,7 +53,7 @@ positionWire correct initpos velWire accelWire = let posWire = positionWire_ cor
 -- | Takes a wire which outputs GameObject and another wire which outputs
 -- GameObjects and combines them to give a wire which outputs Map
 -- GameObjects
-combineObjectWire :: Wire s e IO (GameState b) GameObject -> Wire s e IO (GameState b) GameObject -> Wire s e IO (GameState b) (Map String GameObject)
+combineObjectWire :: (Real t, HasTime t s) => Wire s e IO (GameState b) GameObject -> Wire s e IO (GameState b) GameObject -> Wire s e IO (GameState b) (Map String GameObject)
 combineObjectWire wire1 wire2 = proc state -> do
   object1 <- wire1 -< state
   object2 <- wire2 -< state
