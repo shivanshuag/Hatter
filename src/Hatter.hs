@@ -35,6 +35,7 @@ render (object:others) renderer assetStore = case gameGraphic object of
             case maybeTexture of
             Just iotexture -> do
                 texture <- iotexture
+                --print $ oid object
                 renderSprite renderer sprite (position object) texture
                 render others renderer assetStore
             Nothing -> render others renderer assetStore
